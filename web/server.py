@@ -44,16 +44,22 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "compan
 def _build_llm(instruction: str):
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
+        print("[companio] No GEMINI_API_KEY/GOOGLE_API_KEY found in the environment -- using StubBackend.")
         return StubBackend()
     try:
         from llm.adk_backend import ADKBackend
-        return ADKBackend(instruction=instruction)
-    except Exception:
-        pass
+        backend = ADKBackend(instruction=instruction)
+        print(f"[companio] Gemini key detected -- using ADKBackend (model={backend.model}).")
+        return backend
+    except Exception as exc:
+        print(f"[companio] ADKBackend failed to initialize ({type(exc).__name__}: {exc}) -- falling back to GeminiBackend.")
     try:
         from llm.gemini import GeminiBackend
-        return GeminiBackend()
-    except Exception:
+        backend = GeminiBackend()
+        print(f"[companio] Gemini key detected -- using GeminiBackend (model={backend.model}).")
+        return backend
+    except Exception as exc:
+        print(f"[companio] GeminiBackend also failed to initialize ({type(exc).__name__}: {exc}) -- falling back to StubBackend.")
         return StubBackend()
 
 
