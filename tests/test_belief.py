@@ -86,6 +86,21 @@ def test_adaptive_gate_fires_on_deviation_not_absolute_level():
     assert not any(fired[:-1])
 
 
+def test_adaptive_gate_does_not_fire_on_a_users_second_ever_turn():
+    """A single prior observation isn't an established "pattern" yet --
+    seeding theta from one thin greeting (e.g. "hey", often scoring low)
+    and then judging a confident, on-topic second message as a huge
+    deviation was forcing an unwanted ASK right when the gate has the
+    least evidence to know what's normal for this person. Reproduces the
+    exact scenario found live: a low first score followed by a much
+    higher, perfectly reasonable second score should NOT fire yet."""
+    gate = AdaptiveGate(alpha=0.1, delta=0.25)
+    fired_turn1, _ = gate.step(0.17)   # thin first turn, e.g. "hey"
+    fired_turn2, _ = gate.step(0.65)   # confident, slot-filled second turn
+    assert fired_turn1 is False
+    assert fired_turn2 is False
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
