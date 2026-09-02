@@ -33,11 +33,12 @@ except ImportError:
     pass
 
 from agent import Companion
+from domains.fitness import FITNESS_DOMAIN
 from domains.general import GENERAL_DOMAIN
 from domains.study import STUDY_DOMAIN
 from llm.stub import StubBackend
 
-DOMAINS = {"general": GENERAL_DOMAIN, "study": STUDY_DOMAIN}
+DOMAINS = {"general": GENERAL_DOMAIN, "study": STUDY_DOMAIN, "fitness": FITNESS_DOMAIN}
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "companion.db")
 
 

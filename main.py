@@ -57,6 +57,9 @@ def _build_domain(name: str):
     if name == "study":
         from domains.study import STUDY_DOMAIN
         return STUDY_DOMAIN
+    if name == "fitness":
+        from domains.fitness import FITNESS_DOMAIN
+        return FITNESS_DOMAIN
     raise SystemExit(f"unknown domain: {name}")
 
 
@@ -104,7 +107,7 @@ def _build_llm(backend_choice: str, instruction: str = ""):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--domain", default="general", choices=["general", "study"])
+    parser.add_argument("--domain", default="general", choices=["general", "study", "fitness"])
     parser.add_argument("--user", default="demo-user")
     parser.add_argument("--live", action="store_true", help="use a real Gemini-backed LLM if a key is available")
     parser.add_argument(

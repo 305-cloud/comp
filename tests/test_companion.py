@@ -205,10 +205,11 @@ def test_knowledgeless_domain_does_not_get_stuck_asking_forever():
 
 def test_general_and_study_domains_both_run():
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from domains.fitness import FITNESS_DOMAIN
     from domains.general import GENERAL_DOMAIN
     from domains.study import STUDY_DOMAIN
 
-    for domain in (GENERAL_DOMAIN, STUDY_DOMAIN):
+    for domain in (GENERAL_DOMAIN, STUDY_DOMAIN, FITNESS_DOMAIN):
         c = Companion(domain=domain)
         result = c.turn("u1", "hello there")
         assert isinstance(result.response, str)
