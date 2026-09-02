@@ -202,19 +202,26 @@ function addMessage(role, text, meta, imageDataUrl) {
       pTag.textContent = 'used profile';
       metaRow.appendChild(pTag);
     }
-    const conf = document.createElement('span');
-    conf.textContent = 'confidence ' + meta.confidence;
-    metaRow.appendChild(conf);
+    if (meta.confidence !== undefined) {
+      const conf = document.createElement('span');
+      conf.textContent = 'confidence ' + meta.confidence;
+      metaRow.appendChild(conf);
+    }
     wrap.appendChild(metaRow);
 
-    const fb = document.createElement('div');
-    fb.className = 'fb-btns';
-    const up = document.createElement('button'); up.textContent = '👍';
-    const down = document.createElement('button'); down.textContent = '👎';
-    up.onclick = () => sendFeedback('up', up, down);
-    down.onclick = () => sendFeedback('down', up, down);
-    fb.appendChild(up); fb.appendChild(down);
-    wrap.appendChild(fb);
+    // feedback only applies to the backend's *last* decision for this user,
+    // so it only makes sense on a message from the live session, not a
+    // reloaded historical one -- meta.historical marks the latter.
+    if (!meta.historical) {
+      const fb = document.createElement('div');
+      fb.className = 'fb-btns';
+      const up = document.createElement('button'); up.textContent = '👍';
+      const down = document.createElement('button'); down.textContent = '👎';
+      up.onclick = () => sendFeedback('up', up, down);
+      down.onclick = () => sendFeedback('down', up, down);
+      fb.appendChild(up); fb.appendChild(down);
+      wrap.appendChild(fb);
+    }
   }
   messagesEl.appendChild(wrap);
   messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -381,8 +388,18 @@ async function loadDomains() {
 async function startSession() {
   document.getElementById('whoName').textContent = currentUser();
   document.getElementById('whoDomain').textContent = currentDomain();
-  messagesEl.innerHTML = '<div class="empty" style="padding:20px;">Say something to get started.</div>';
+  messagesEl.innerHTML = '<div class="empty" style="padding:20px;">Loading history...</div>';
   await api('/api/session?' + qs({ user_id: currentUser(), domain: currentDomain() }), { method: 'POST' });
+
+  const past = await api('/api/history?' + qs({ user_id: currentUser(), domain: currentDomain() }));
+  messagesEl.innerHTML = '';
+  if (past.length === 0) {
+    messagesEl.innerHTML = '<div class="empty" style="padding:20px;">Say something to get started.</div>';
+  } else {
+    for (const turn of past) {
+      addMessage(turn.role, turn.text, turn.role === 'agent' ? { asked_clarifying: turn.asked_clarifying, historical: true } : null);
+    }
+  }
   refreshSidebar();
 }
 

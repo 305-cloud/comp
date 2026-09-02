@@ -184,6 +184,11 @@ def metrics(user_id: str, domain: str = "general") -> List[Dict[str, Any]]:
     return get_companion(domain).adaptation_metrics(user_id)
 
 
+@app.get("/api/history")
+def history(user_id: str, domain: str = "general") -> List[Dict[str, Any]]:
+    return get_companion(domain).history(user_id)
+
+
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

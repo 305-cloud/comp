@@ -200,6 +200,24 @@ class Companion:
             for e in self.store.live_feed_tail(user_id, n)
         ]
 
+    def history(self, user_id: str, limit: int = 200) -> List[Dict[str, Any]]:
+        """Reconstructs the chat transcript from the same episodic log
+        every other read (:feed, live_feed) already reads -- no separate
+        history table. Only human input and the agent's own delivered
+        text (advice/clarify) become chat turns; transformer/feedback
+        events are internal and don't have display text of their own."""
+        events = self.store.read_episodic(user_id, limit=limit)
+        turns = []
+        for e in reversed(events):  # read_episodic returns newest-first
+            if e.source == SOURCE_HUMAN and e.event_type == "input":
+                turns.append({"role": "user", "text": e.payload.get("text", ""), "ts": e.ts})
+            elif e.source == SOURCE_AGENT and e.event_type in ("advice", "clarify"):
+                turns.append({
+                    "role": "agent", "text": e.payload.get("text", ""), "ts": e.ts,
+                    "asked_clarifying": e.event_type == "clarify",
+                })
+        return turns
+
     def adaptation_metrics(self, user_id: str) -> List[Dict[str, Any]]:
         return self.metrics.session_trend(user_id)
 
