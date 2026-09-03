@@ -73,17 +73,25 @@ class Clarifier:
         self._gate_alpha = gate_alpha
         self._gate_delta = gate_delta
         self._gates: Dict[str, AdaptiveGate] = {}
+        self._awaiting_reply: Dict[str, bool] = {}
 
     def _gate_for(self, user_id: str) -> AdaptiveGate:
         if user_id not in self._gates:
             self._gates[user_id] = AdaptiveGate(alpha=self._gate_alpha, delta=self._gate_delta)
         return self._gates[user_id]
 
-    def _slot_fill_rate(self, external: ExternalState, domain: DomainConfig) -> float:
+    def _slot_fill_rate(self, external: ExternalState, domain: DomainConfig, credit_one: bool = False) -> float:
+        """`credit_one`: the previous turn asked a clarifying question, so
+        this message is a direct reply to it -- credit one slot as filled
+        even if the reply doesn't literally repeat a slot's name (e.g.
+        answering "what's your goal?" with "strength" doesn't contain the
+        word "goal", but it plainly answered the question)."""
         if not domain.required_slots:
             return 1.0
         text = external.text.lower()
         filled = sum(1 for slot in domain.required_slots if slot.lower() in text or slot in external.context)
+        if credit_one and filled < len(domain.required_slots):
+            filled += 1
         return filled / len(domain.required_slots)
 
     def _score(self, features: List[float]) -> float:
@@ -97,7 +105,8 @@ class Clarifier:
         retrieval_score: float,
         profile_match_strength: float,
     ) -> ClarifierResult:
-        slot_fill = self._slot_fill_rate(external, domain)
+        was_asked = self._awaiting_reply.get(external.user_id, False)
+        slot_fill = self._slot_fill_rate(external, domain, credit_one=was_asked)
         features = [slot_fill, retrieval_score, profile_match_strength]
 
         p = self._score(features)
@@ -109,7 +118,9 @@ class Clarifier:
         )
 
         if p < self.tau_lo or entropy > self.tau_entropy or (gate_fires and p < self.tau_hi):
+            self._awaiting_reply[external.user_id] = True
             return ClarifierResult(Action.ASK, p, entropy, question, features)
+        self._awaiting_reply[external.user_id] = False
         if p < self.tau_hi:
             return ClarifierResult(Action.PROCEED_WITH_FLAG, p, entropy, None, features)
         return ClarifierResult(Action.PROCEED_SILENT, p, entropy, None, features)

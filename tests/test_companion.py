@@ -111,6 +111,23 @@ def test_image_attachment_reaches_the_llm_backend():
     assert "image was attached" in result.response
 
 
+def test_replying_to_a_clarifying_question_counts_as_answering_it():
+    """Found live: a domain needing a required slot (e.g. "goal") asks
+    for it, the user directly answers in plain language (e.g. "strength"
+    or "tell me about it please") without literally repeating the slot's
+    name, and used to get asked the *exact same* question again forever
+    -- slot-fill only ever checked for the literal word appearing in the
+    raw text, with no notion that a reply to a just-asked question is,
+    definitionally, an answer to it. Pins the fix: the Clarifier now
+    credits one slot as filled on the turn immediately following an ASK."""
+    c = Companion(domain=make_domain())
+    r1 = c.turn("u1", "hey")
+    assert r1.asked_clarifying is True
+
+    r2 = c.turn("u1", "tell me about it please")
+    assert r2.asked_clarifying is False
+
+
 def test_turn_without_image_is_unaffected_by_the_new_parameters():
     c = Companion(domain=make_domain())
     result = c.turn("u1", "category routines question")

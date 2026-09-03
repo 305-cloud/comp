@@ -27,7 +27,7 @@ FITNESS_DOMAIN = DomainConfig(
         "advice grounded in what's actually true about them -- not generic, "
         "one-size-fits-all fitness content."
     ),
-    required_slots=["goal", "weight"],
+    required_slots=["goal"],
     clarifying_question_bank=[
         "What's your main goal -- losing weight, building strength, more energy, or something else?",
         "What does a typical day look like for you right now in terms of activity and meals?",
