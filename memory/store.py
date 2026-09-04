@@ -50,9 +50,14 @@ class EpisodicEvent:
     ts: float = field(default_factory=time.time)
     pii: bool = False
     bits: str = ""
+    domain: str = "general"
+    conversation_id: str = "legacy"  # groups turns into one chat thread for the sidebar
 
     @classmethod
-    def new(cls, user_id: str, source: str, event_type: str, payload: Dict[str, Any]) -> "EpisodicEvent":
+    def new(
+        cls, user_id: str, source: str, event_type: str, payload: Dict[str, Any],
+        domain: str = "general", conversation_id: str = "legacy",
+    ) -> "EpisodicEvent":
         assert source in VALID_SOURCES, f"invalid source: {source}"
         raw = json.dumps(payload, sort_keys=True)
         return cls(
@@ -63,6 +68,8 @@ class EpisodicEvent:
             payload=payload,
             pii=contains_pii(raw),
             bits=_bit_repr(raw),
+            domain=domain,
+            conversation_id=conversation_id,
         )
 
 
@@ -100,7 +107,25 @@ class UnifiedMemoryStore:
             CREATE INDEX IF NOT EXISTS idx_episodic_user ON episodic_log(user_id, ts);
             """
         )
+        self._migrate_episodic_log_columns()
         self._conn.commit()
+
+    def _migrate_episodic_log_columns(self) -> None:
+        """Older databases predate the domain/conversation_id columns --
+        add them in place rather than requiring a fresh db. Existing rows
+        get domain='general', conversation_id='legacy' (the best label
+        available in hindsight, since the old schema never recorded
+        either) so they still surface as one browsable past chat instead
+        of vanishing."""
+        existing = {row["name"] for row in self._conn.execute("PRAGMA table_info(episodic_log)")}
+        if "domain" not in existing:
+            self._conn.execute("ALTER TABLE episodic_log ADD COLUMN domain TEXT NOT NULL DEFAULT 'general'")
+        if "conversation_id" not in existing:
+            self._conn.execute("ALTER TABLE episodic_log ADD COLUMN conversation_id TEXT NOT NULL DEFAULT 'legacy'")
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_episodic_conversation "
+            "ON episodic_log(user_id, domain, conversation_id, ts)"
+        )
 
     # ---------- episodic (raw, source-tagged log) ----------
 
@@ -108,29 +133,69 @@ class UnifiedMemoryStore:
         """Idempotent write: retried writes never duplicate an event."""
         self._conn.execute(
             "INSERT OR IGNORE INTO episodic_log "
-            "(id, user_id, source, event_type, payload_json, bits, pii, ts) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(id, user_id, source, event_type, payload_json, bits, pii, ts, domain, conversation_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 event.id, event.user_id, event.source, event.event_type,
                 json.dumps(event.payload), event.bits, int(event.pii), event.ts,
+                event.domain, event.conversation_id,
             ),
         )
         self._conn.commit()
 
-    def read_episodic(self, user_id: str, limit: int = 50, unconsumed_only: bool = False) -> List[EpisodicEvent]:
+    def read_episodic(
+        self, user_id: str, limit: int = 50, unconsumed_only: bool = False,
+        domain: Optional[str] = None, conversation_id: Optional[str] = None,
+    ) -> List[EpisodicEvent]:
         query = "SELECT * FROM episodic_log WHERE user_id = ?"
+        params: List[Any] = [user_id]
+        if domain is not None:
+            query += " AND domain = ?"
+            params.append(domain)
+        if conversation_id is not None:
+            query += " AND conversation_id = ?"
+            params.append(conversation_id)
         if unconsumed_only:
             query += " AND consumed = 0"
         query += " ORDER BY ts DESC LIMIT ?"
-        rows = self._conn.execute(query, (user_id, limit)).fetchall()
+        params.append(limit)
+        rows = self._conn.execute(query, params).fetchall()
         return [
             EpisodicEvent(
                 id=r["id"], user_id=r["user_id"], source=r["source"],
                 event_type=r["event_type"], payload=json.loads(r["payload_json"]),
                 ts=r["ts"], pii=bool(r["pii"]), bits=r["bits"],
+                domain=r["domain"], conversation_id=r["conversation_id"],
             )
             for r in rows
         ]
+
+    def list_conversations(self, user_id: str, domain: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Groups this user+domain's episodic log by conversation_id --
+        the unit the sidebar's chat list shows. Title is the
+        conversation's first human message (truncated); a conversation
+        with no human input at all is dropped (nothing to show or click
+        into)."""
+        rows = self._conn.execute(
+            "SELECT conversation_id, source, event_type, payload_json, ts "
+            "FROM episodic_log WHERE user_id = ? AND domain = ? ORDER BY ts ASC",
+            (user_id, domain),
+        ).fetchall()
+        conversations: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            cid = r["conversation_id"]
+            conv = conversations.setdefault(
+                cid, {"conversation_id": cid, "title": None, "last_ts": 0.0, "turns": 0}
+            )
+            conv["last_ts"] = max(conv["last_ts"], r["ts"])
+            if r["source"] == SOURCE_HUMAN and r["event_type"] == "input":
+                conv["turns"] += 1
+                if conv["title"] is None:
+                    text = json.loads(r["payload_json"]).get("text", "").strip()
+                    conv["title"] = (text[:48] + "...") if len(text) > 48 else (text or "New chat")
+        result = [c for c in conversations.values() if c["turns"] > 0]
+        result.sort(key=lambda c: c["last_ts"], reverse=True)
+        return result[:limit]
 
     def mark_consumed(self, event_ids: List[str]) -> None:
         if not event_ids:

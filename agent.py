@@ -46,6 +46,7 @@ class TurnResult:
     confidence: float
     pending_confirmations: List[Dict[str, Any]] = field(default_factory=list)
     last_response_event_id: Optional[str] = None
+    conversation_id: str = ""
 
 
 class Companion:
@@ -87,14 +88,23 @@ class Companion:
         context: Optional[Dict[str, Any]] = None,
         image_bytes: Optional[bytes] = None,
         image_mime: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> TurnResult:
+        # No id from the caller means "start a new chat thread" -- the
+        # caller (the web app) adopts the generated id from the result
+        # and passes it back on every following turn in that thread.
+        conversation_id = conversation_id or str(uuid.uuid4())
+
         external = ExternalState(
             user_id=user_id, text=text, context=context or {},
             image_bytes=image_bytes, image_mime=image_mime,
         )
         internal = self._load_internal_state(user_id)
 
-        input_event = EpisodicEvent.new(user_id, SOURCE_HUMAN, "input", {"text": text})
+        input_event = EpisodicEvent.new(
+            user_id, SOURCE_HUMAN, "input", {"text": text},
+            domain=self.domain.name, conversation_id=conversation_id,
+        )
         self.store.write_episodic(input_event)
 
         retrieval = self.retriever.retrieve(external, internal, self.domain)
@@ -109,9 +119,12 @@ class Companion:
         if decision.action == Action.ASK:
             response_text = decision.question or "Could you tell me more?"
             self.metrics.record_turn(user_id, asked_clarifying=True, used_profile=False)
-            resp_event = EpisodicEvent.new(user_id, SOURCE_AGENT, "clarify", {"text": response_text})
+            resp_event = EpisodicEvent.new(
+                user_id, SOURCE_AGENT, "clarify", {"text": response_text},
+                domain=self.domain.name, conversation_id=conversation_id,
+            )
             self.store.write_episodic(resp_event)
-            return TurnResult(response_text, True, False, decision.confidence, pending, resp_event.id)
+            return TurnResult(response_text, True, False, decision.confidence, pending, resp_event.id, conversation_id)
 
         assumption_note = None
         if decision.action == Action.PROCEED_WITH_FLAG:
@@ -125,11 +138,13 @@ class Companion:
         transformer_event = EpisodicEvent.new(
             user_id, SOURCE_TRANSFORMER, "generation",
             {"prompt_tokens_context": len(retrieval.domain_knowledge)},
+            domain=self.domain.name, conversation_id=conversation_id,
         )
         self.store.write_episodic(transformer_event)
 
         action_event = EpisodicEvent.new(
             user_id, SOURCE_AGENT, "advice", {"text": guide_response.text},
+            domain=self.domain.name, conversation_id=conversation_id,
         )
         self.store.write_episodic(action_event)
 
@@ -142,6 +157,7 @@ class Companion:
             confidence=decision.confidence,
             pending_confirmations=pending,
             last_response_event_id=action_event.id,
+            conversation_id=conversation_id,
         )
 
     # ---------- feedback + consolidation ----------
@@ -166,7 +182,7 @@ class Companion:
             self.clarifier.learn(features, action_was_proceed, reward)
 
         if fact_update:
-            ep = EpisodicEvent.new(user_id, SOURCE_HUMAN, "feedback", fact_update)
+            ep = EpisodicEvent.new(user_id, SOURCE_HUMAN, "feedback", fact_update, domain=self.domain.name)
             self.store.write_episodic(ep)
         return event
 
@@ -200,13 +216,19 @@ class Companion:
             for e in self.store.live_feed_tail(user_id, n)
         ]
 
-    def history(self, user_id: str, limit: int = 200) -> List[Dict[str, Any]]:
-        """Reconstructs the chat transcript from the same episodic log
+    def history(self, user_id: str, conversation_id: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+        """Reconstructs a chat transcript from the same episodic log
         every other read (:feed, live_feed) already reads -- no separate
         history table. Only human input and the agent's own delivered
         text (advice/clarify) become chat turns; transformer/feedback
-        events are internal and don't have display text of their own."""
-        events = self.store.read_episodic(user_id, limit=limit)
+        events are internal and don't have display text of their own.
+        Scoped to this Companion's own domain always, and to one
+        conversation_id when given (the sidebar's "open this past chat"
+        case) -- omit it to get every turn across all of this user's
+        conversations in this domain."""
+        events = self.store.read_episodic(
+            user_id, limit=limit, domain=self.domain.name, conversation_id=conversation_id,
+        )
         turns = []
         for e in reversed(events):  # read_episodic returns newest-first
             if e.source == SOURCE_HUMAN and e.event_type == "input":
@@ -217,6 +239,12 @@ class Companion:
                     "asked_clarifying": e.event_type == "clarify",
                 })
         return turns
+
+    def list_conversations(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """The sidebar's chat list: every past conversation this user has
+        had in this Companion's domain, newest first, titled from each
+        one's first message."""
+        return self.store.list_conversations(user_id, self.domain.name, limit=limit)
 
     def adaptation_metrics(self, user_id: str) -> List[Dict[str, Any]]:
         return self.metrics.session_trend(user_id)

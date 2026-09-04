@@ -220,6 +220,70 @@ def test_knowledgeless_domain_does_not_get_stuck_asking_forever():
         assert result.asked_clarifying is False
 
 
+def test_turn_without_conversation_id_starts_a_new_thread_each_time():
+    """Omitting conversation_id (the default, e.g. a fresh 'New chat')
+    must not silently glue unrelated turns into one thread -- each such
+    turn gets its own generated id."""
+    c = Companion(domain=make_domain())
+    r1 = c.turn("u1", "category routines question")
+    r2 = c.turn("u1", "category routines question again")
+    assert r1.conversation_id and r2.conversation_id
+    assert r1.conversation_id != r2.conversation_id
+
+
+def test_turn_reuses_conversation_id_when_caller_passes_one():
+    c = Companion(domain=make_domain())
+    r1 = c.turn("u1", "category routines question", conversation_id="thread-1")
+    r2 = c.turn("u1", "a follow up about routines", conversation_id="thread-1")
+    assert r1.conversation_id == "thread-1"
+    assert r2.conversation_id == "thread-1"
+
+
+def test_history_filters_to_one_conversation():
+    c = Companion(domain=make_domain())
+    c.turn("u1", "category routines in thread one", conversation_id="thread-1")
+    c.turn("u1", "category routines in thread two", conversation_id="thread-2")
+
+    thread_one = c.history("u1", conversation_id="thread-1")
+    assert any("thread one" in t["text"] for t in thread_one if t["role"] == "user")
+    assert not any("thread two" in t["text"] for t in thread_one if t["role"] == "user")
+
+
+def test_list_conversations_titles_from_first_message_and_orders_newest_first():
+    c = Companion(domain=make_domain())
+    c.turn("u1", "first message about routines", conversation_id="thread-1")
+    c.turn("u1", "second message in same thread", conversation_id="thread-1")
+    c.turn("u1", "a different category conversation", conversation_id="thread-2")
+
+    convos = c.list_conversations("u1")
+    assert [conv["conversation_id"] for conv in convos] == ["thread-2", "thread-1"]
+    thread_one = next(conv for conv in convos if conv["conversation_id"] == "thread-1")
+    assert thread_one["title"] == "first message about routines"
+    assert thread_one["turns"] == 2
+
+
+def test_conversations_do_not_leak_across_domains():
+    """Two Companion instances (different domains) sharing the same db
+    file must not see each other's conversations -- otherwise switching
+    the domain dropdown would show the wrong chat list."""
+    from domain import DomainConfig
+
+    other_domain = DomainConfig(
+        name="other_domain", purpose="A different vertical entirely.",
+        required_slots=[], clarifying_question_bank=["Tell me more?"],
+        domain_knowledge=["Some unrelated knowledge."],
+    )
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".db") as f:
+        c1 = Companion(domain=make_domain(), db_path=f.name)
+        c2 = Companion(domain=other_domain, db_path=f.name)
+        c1.turn("u1", "category routines question", conversation_id="thread-1")
+        c2.turn("u1", "something in the other domain", conversation_id="thread-2")
+
+        assert [conv["conversation_id"] for conv in c1.list_conversations("u1")] == ["thread-1"]
+        assert [conv["conversation_id"] for conv in c2.list_conversations("u1")] == ["thread-2"]
+
+
 def test_general_and_study_domains_both_run():
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from domains.fitness import FITNESS_DOMAIN

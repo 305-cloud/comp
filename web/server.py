@@ -89,6 +89,7 @@ class TurnRequest(BaseModel):
     user_id: str
     domain: str = "general"
     text: str
+    conversation_id: Optional[str] = None  # None starts a new chat thread; server generates and returns one
     image_base64: Optional[str] = None  # data URI's base64 payload only, no "data:...;base64," prefix
     image_mime: Optional[str] = None    # e.g. "image/png" -- required alongside image_base64
 
@@ -133,7 +134,10 @@ def turn(req: TurnRequest) -> Dict[str, Any]:
         if len(image_bytes) > _MAX_IMAGE_BYTES:
             raise HTTPException(status_code=413, detail=f"image exceeds {_MAX_IMAGE_BYTES // (1024*1024)}MB limit")
     try:
-        result = companion.turn(req.user_id, req.text, image_bytes=image_bytes, image_mime=req.image_mime)
+        result = companion.turn(
+            req.user_id, req.text, image_bytes=image_bytes, image_mime=req.image_mime,
+            conversation_id=req.conversation_id,
+        )
     except Exception as exc:  # noqa: BLE001 -- surface the real LLM/backend error to the UI
         import traceback
         traceback.print_exc()
@@ -144,6 +148,7 @@ def turn(req: TurnRequest) -> Dict[str, Any]:
         "used_profile": result.used_profile,
         "confidence": round(result.confidence, 3),
         "pending_confirmations": result.pending_confirmations,
+        "conversation_id": result.conversation_id,
     }
 
 
@@ -185,8 +190,13 @@ def metrics(user_id: str, domain: str = "general") -> List[Dict[str, Any]]:
 
 
 @app.get("/api/history")
-def history(user_id: str, domain: str = "general") -> List[Dict[str, Any]]:
-    return get_companion(domain).history(user_id)
+def history(user_id: str, domain: str = "general", conversation_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    return get_companion(domain).history(user_id, conversation_id=conversation_id)
+
+
+@app.get("/api/conversations")
+def conversations(user_id: str, domain: str = "general") -> List[Dict[str, Any]]:
+    return get_companion(domain).list_conversations(user_id)
 
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")

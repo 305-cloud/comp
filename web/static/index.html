@@ -26,6 +26,15 @@
   .section h2 { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 10px; }
   .section.grow { flex:1; min-height:80px; }
 
+  .convo-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .convo-header h2 { margin:0; }
+  .new-chat-btn { background:#0d1117; border:1px solid var(--border); color:var(--accent); border-radius:6px; padding:4px 10px; font-size:11.5px; cursor:pointer; }
+  .new-chat-btn:hover { border-color:var(--accent); }
+  .convo-list { max-height:180px; overflow-y:auto; }
+  .convo-row { padding:7px 9px; border-radius:6px; font-size:12.5px; color:var(--text); cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:2px; border:1px solid transparent; }
+  .convo-row:hover { background:#1c2128; }
+  .convo-row.active { background:#1c2128; border-color:var(--border); color:var(--accent); }
+
   .fact { background:#0d1117; border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:8px; }
   .fact-top { display:flex; justify-content:space-between; align-items:center; gap:6px; }
   .fact-label { font-size:12.5px; color:var(--text-bright); }
@@ -109,6 +118,13 @@
         </select>
       </div>
     </div>
+    <div class="section">
+      <div class="convo-header">
+        <h2>Conversations</h2>
+        <button id="newChatBtn" class="new-chat-btn">+ New</button>
+      </div>
+      <div id="conversationList" class="convo-list"><div class="empty">No conversations yet.</div></div>
+    </div>
     <div class="section" id="pendingSection" style="display:none;">
       <h2>Needs confirmation</h2>
       <div id="pendingList"></div>
@@ -156,6 +172,7 @@ const imagePreviewEl = document.getElementById('imagePreview');
 
 let lastEventId = null;
 let pendingImage = null; // { dataUrl, base64, mime }
+let currentConversationId = null; // null = not-yet-started new chat
 
 function currentUser() { return userIdEl.value.trim() || 'demo-user'; }
 function currentDomain() { return domainSelEl.value; }
@@ -282,18 +299,20 @@ async function sendTurn() {
   sendBtnEl.disabled = true;
   addMessage('user', text, null, image ? image.dataUrl : null);
   try {
-    const body = { user_id: currentUser(), domain: currentDomain(), text };
+    const body = { user_id: currentUser(), domain: currentDomain(), text, conversation_id: currentConversationId };
     if (image) { body.image_base64 = image.base64; body.image_mime = image.mime; }
     const result = await api('/api/turn', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
     });
     addMessage('agent', result.response, result);
+    currentConversationId = result.conversation_id;
   } catch (e) {
     addMessage('agent', '[error] ' + e.message, {});
   } finally {
     sendBtnEl.disabled = false;
     refreshSidebar();
+    refreshConversations();
   }
 }
 
@@ -390,6 +409,48 @@ function refreshSidebar() {
   refreshMetrics();
 }
 
+async function refreshConversations() {
+  const el = document.getElementById('conversationList');
+  const convos = await api('/api/conversations?' + qs({ user_id: currentUser(), domain: currentDomain() }));
+  el.innerHTML = '';
+  if (convos.length === 0) {
+    el.innerHTML = '<div class="empty">No conversations yet.</div>';
+  } else {
+    for (const c of convos) {
+      const row = document.createElement('div');
+      row.className = 'convo-row' + (c.conversation_id === currentConversationId ? ' active' : '');
+      row.textContent = c.title || 'New chat';
+      row.title = new Date(c.last_ts * 1000).toLocaleString();
+      row.onclick = () => loadConversation(c.conversation_id);
+      el.appendChild(row);
+    }
+  }
+  return convos;
+}
+
+async function loadConversation(conversationId) {
+  currentConversationId = conversationId;
+  messagesEl.innerHTML = '<div class="empty" style="padding:20px;">Loading...</div>';
+  const past = await api('/api/history?' + qs({ user_id: currentUser(), domain: currentDomain(), conversation_id: conversationId }));
+  messagesEl.innerHTML = '';
+  if (past.length === 0) {
+    messagesEl.innerHTML = '<div class="empty" style="padding:20px;">Say something to get started.</div>';
+  } else {
+    for (const turn of past) {
+      addMessage(turn.role, turn.text, turn.role === 'agent' ? { asked_clarifying: turn.asked_clarifying, historical: true } : null);
+    }
+  }
+  refreshConversations();
+}
+
+function startNewChat() {
+  currentConversationId = null;
+  messagesEl.innerHTML = '<div class="empty" style="padding:20px;">Say something to get started.</div>';
+  refreshConversations();
+}
+
+document.getElementById('newChatBtn').onclick = startNewChat;
+
 async function loadDomains() {
   const domains = await api('/api/domains');
   domainSelEl.innerHTML = domains.map(d => `<option value="${d.id}">${d.id}</option>`).join('');
@@ -398,17 +459,15 @@ async function loadDomains() {
 async function startSession() {
   document.getElementById('whoName').textContent = currentUser();
   document.getElementById('whoDomain').textContent = currentDomain();
+  currentConversationId = null;
   messagesEl.innerHTML = '<div class="empty" style="padding:20px;">Loading history...</div>';
   await api('/api/session?' + qs({ user_id: currentUser(), domain: currentDomain() }), { method: 'POST' });
 
-  const past = await api('/api/history?' + qs({ user_id: currentUser(), domain: currentDomain() }));
-  messagesEl.innerHTML = '';
-  if (past.length === 0) {
-    messagesEl.innerHTML = '<div class="empty" style="padding:20px;">Say something to get started.</div>';
+  const convos = await refreshConversations();
+  if (convos.length > 0) {
+    await loadConversation(convos[0].conversation_id);
   } else {
-    for (const turn of past) {
-      addMessage(turn.role, turn.text, turn.role === 'agent' ? { asked_clarifying: turn.asked_clarifying, historical: true } : null);
-    }
+    messagesEl.innerHTML = '<div class="empty" style="padding:20px;">Say something to get started.</div>';
   }
   refreshSidebar();
 }
