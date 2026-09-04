@@ -72,10 +72,11 @@
   .fb-btns button:hover { border-color:var(--accent); color:var(--accent); }
   .fb-btns button.done { color:var(--green); border-color:var(--green); }
 
-  .composer { padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; }
-  .composer input { flex:1; background:var(--panel); border:1px solid var(--border); color:var(--text-bright); border-radius:8px; padding:11px 14px; font-size:14px; }
-  .composer input:focus { outline:none; border-color:var(--accent); }
-  .composer button { background:var(--accent); color:#04101c; border:none; border-radius:8px; padding:0 20px; font-weight:600; cursor:pointer; }
+  .composer { padding:16px 20px; border-top:1px solid var(--border); display:flex; gap:10px; align-items:flex-end; }
+  .composer input, .composer textarea { flex:1; background:var(--panel); border:1px solid var(--border); color:var(--text-bright); border-radius:8px; padding:11px 14px; font-size:14px; }
+  .composer input:focus, .composer textarea:focus { outline:none; border-color:var(--accent); }
+  .composer textarea { font-family:inherit; line-height:1.4; resize:none; overflow-y:auto; max-height:160px; }
+  .composer button { align-self:flex-end; background:var(--accent); color:#04101c; border:none; border-radius:8px; padding:0 20px; height:42px; font-weight:600; cursor:pointer; }
   .composer button:disabled { opacity:.5; cursor:default; }
   .attach-btn { background:var(--panel); border:1px solid var(--border); color:var(--muted); border-radius:8px; padding:0 14px; font-size:16px; cursor:pointer; }
   .attach-btn:hover { border-color:var(--accent); color:var(--accent); }
@@ -137,7 +138,7 @@
     <div class="composer">
       <input type="file" id="imageInput" accept="image/*" style="display:none;" />
       <button id="attachBtn" class="attach-btn" title="Attach an image">&#128206;</button>
-      <input id="textInput" placeholder="Type a message..." autocomplete="off" />
+      <textarea id="textInput" rows="1" placeholder="Type a message..." autocomplete="off"></textarea>
       <button id="sendBtn">Send</button>
     </div>
   </div>
@@ -262,11 +263,17 @@ imageInputEl.addEventListener('change', () => {
   reader.readAsDataURL(file);
 });
 
+function resizeTextInput() {
+  textInputEl.style.height = 'auto';
+  textInputEl.style.height = Math.min(textInputEl.scrollHeight, 160) + 'px';
+}
+
 async function sendTurn() {
   const text = textInputEl.value.trim();
   const image = pendingImage;
   if (!text && !image) return;
   textInputEl.value = '';
+  resizeTextInput();
   pendingImage = null;
   imagePreviewEl.style.display = 'none';
   imagePreviewEl.innerHTML = '';
@@ -291,7 +298,10 @@ async function sendTurn() {
 }
 
 sendBtnEl.onclick = sendTurn;
-textInputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendTurn(); });
+textInputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTurn(); }
+});
+textInputEl.addEventListener('input', resizeTextInput);
 
 async function refreshProfile() {
   const el = document.getElementById('profileList');
