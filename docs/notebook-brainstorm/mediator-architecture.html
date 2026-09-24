@@ -1,0 +1,442 @@
+<title>Mediator Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg: #F3F4F6;
+    --panel: #FFFFFF;
+    --ink: #1A1D22;
+    --ink-soft: #545C66;
+    --ink-faint: #8B929B;
+    --rule: #D9DEE3;
+    --built: #1F6F5C;
+    --built-soft: #E3F1ED;
+    --pending: #A6621B;
+    --pending-soft: #F7ECDD;
+    --future: #6B7280;
+    --future-soft: #EEF0F2;
+    --world: #33445C;
+    --world-soft: #E7ECF3;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --bg: #14171B;
+      --panel: #1B1F24;
+      --ink: #E9EBEE;
+      --ink-soft: #A7AFB8;
+      --ink-faint: #6B737C;
+      --rule: #2B3036;
+      --built: #4FBFA3;
+      --built-soft: #16332C;
+      --pending: #E0954B;
+      --pending-soft: #3A2A17;
+      --future: #9AA1A9;
+      --future-soft: #23262A;
+      --world: #8FA5C7;
+      --world-soft: #1E2A3B;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg: #14171B;
+    --panel: #1B1F24;
+    --ink: #E9EBEE;
+    --ink-soft: #A7AFB8;
+    --ink-faint: #6B737C;
+    --rule: #2B3036;
+    --built: #4FBFA3;
+    --built-soft: #16332C;
+    --pending: #E0954B;
+    --pending-soft: #3A2A17;
+    --future: #9AA1A9;
+    --future-soft: #23262A;
+    --world: #8FA5C7;
+    --world-soft: #1E2A3B;
+  }
+
+  *{ box-sizing: border-box; }
+  body{
+    margin:0; padding-block: 40px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Work Sans', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .wrap{ max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+  header{ margin-bottom: 8px; }
+  h1{
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700;
+    font-size: 30px;
+    letter-spacing: -0.2px;
+    margin: 0 0 10px;
+  }
+  .thesis{
+    max-width: 68ch;
+    color: var(--ink-soft);
+    font-size: 15.5px;
+  }
+  .thesis strong{ color: var(--ink); font-weight: 600; }
+
+  .source-strip{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    margin: 14px 0 30px;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+  }
+
+  figure{ margin: 0 0 30px; }
+  .diagram-scroll{
+    overflow-x: auto;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  svg{ display:block; min-width: 720px; width: 100%; height: auto; }
+  figcaption{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    margin-top: 10px;
+    text-align: center;
+  }
+
+  .node-label{ font-family: 'Archivo', sans-serif; font-weight: 600; }
+  .node-sub{ font-family: 'IBM Plex Mono', monospace; }
+  .edge-label{ font-family: 'IBM Plex Mono', monospace; fill: var(--ink-soft); }
+  .node-built rect{ fill: var(--built-soft); stroke: var(--built); stroke-width: 1.6; }
+  .node-built .node-label{ fill: var(--built); }
+  .node-pending rect{ fill: var(--pending-soft); stroke: var(--pending); stroke-width: 1.6; }
+  .node-pending .node-label{ fill: var(--pending); }
+  .node-future rect{ fill: var(--future-soft); stroke: var(--future); stroke-width: 1.6; stroke-dasharray: 6 5; }
+  .node-future .node-label{ fill: var(--future); }
+  .node-world rect{ fill: var(--world-soft); stroke: var(--world); stroke-width: 1.8; }
+  .node-world .node-label{ fill: var(--world); }
+  .node-sub{ fill: var(--ink-faint); font-size: 10.5px; }
+  .badge{ font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.3px; }
+
+  .edge{ fill:none; stroke: var(--ink-faint); stroke-width: 1.6; }
+  .edge-dashed{ fill:none; stroke: var(--ink-faint); stroke-width: 1.4; stroke-dasharray: 5 4; }
+
+  .legend{
+    display:flex; flex-wrap:wrap; gap: 18px;
+    padding: 16px 18px;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    margin-bottom: 30px;
+  }
+  .legend-item{ display:flex; align-items:center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--ink-soft); }
+  .swatch{ width: 14px; height: 14px; border-radius: 3px; flex-shrink:0; }
+  .swatch.built{ background: var(--built-soft); border: 1.6px solid var(--built); }
+  .swatch.pending{ background: var(--pending-soft); border: 1.6px solid var(--pending); }
+  .swatch.future{ background: var(--future-soft); border: 1.6px dashed var(--future); }
+  .swatch.world{ background: var(--world-soft); border: 1.8px solid var(--world); }
+
+  .key-list{ display: grid; gap: 18px; }
+  .key-item{
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .key-item:last-child{ border-bottom: none; padding-bottom: 0; }
+  @media (max-width: 640px){
+    .key-item{ grid-template-columns: 1fr; gap: 4px; }
+  }
+  .key-name{
+    font-family: 'Archivo', sans-serif;
+    font-weight: 600;
+    font-size: 13.5px;
+  }
+  .key-page{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--ink-faint);
+    margin-top: 4px;
+  }
+  .key-desc{ color: var(--ink-soft); font-size: 13.5px; }
+  .key-desc code{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    background: var(--future-soft);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  h2{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 16px;
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <h1>Mediator Architecture</h1>
+    <p class="thesis">
+      Build a machine that, once it has watched a user long enough to predict their own decisions
+      accurately, can act on the <strong>1s-and-0s digital world</strong> as their proxy &mdash; and
+      knows, precisely, when it hasn't watched long enough yet. This is how the seven notebook pages
+      link into one loop, not six separate ideas.
+    </p>
+  </header>
+  <p class="source-strip">companion notebook, pages 1&ndash;8 &middot; cross-referenced against 305-cloud/comp</p>
+
+  <figure>
+    <div class="diagram-scroll">
+      <svg viewBox="0 0 1180 870" role="img" aria-label="The mediator loop: the digital world feeds Perception, which consolidates into the Trust Engine; the Trust Engine either asks the user or routes to the Mediation Layer, which acts on the digital world and is checked by Verification; Verification updates the Trust Engine's belief and feeds the Training Loop, which recalibrates the Trust Engine and, eventually, could train the idealized end-to-end model. The LLM Transformer is a satellite utility called by both Perception and the Mediation Layer.">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"></path>
+          </marker>
+        </defs>
+
+        <!-- DIGITAL WORLD -->
+        <g class="node-world">
+          <rect x="400" y="20" width="660" height="72" rx="6"></rect>
+          <text x="730" y="48" text-anchor="middle" class="node-label" font-size="15">DIGITAL WORLD</text>
+          <text x="730" y="66" text-anchor="middle" class="node-sub">everything that exists in 1s &amp; 0s &mdash; page 6, &ldquo;x&rdquo;</text>
+          <text x="410" y="35" class="badge" fill="var(--world)">SUBSTRATE</text>
+        </g>
+
+        <!-- LLM TRANSFORMER -->
+        <g class="node-future">
+          <rect x="40" y="170" width="290" height="110" rx="6"></rect>
+          <text x="185" y="205" text-anchor="middle" class="node-label" font-size="14">LLM TRANSFORMER</text>
+          <text x="185" y="224" text-anchor="middle" class="node-sub">generates when no learned pattern fits</text>
+          <text x="185" y="243" text-anchor="middle" class="node-sub">page 6, &ldquo;z&rdquo;</text>
+          <text x="50" y="187" class="badge" fill="var(--built)">BUILT &mdash; llm/</text>
+        </g>
+
+        <!-- PERCEPTION -->
+        <g class="node-built">
+          <rect x="400" y="170" width="290" height="110" rx="6"></rect>
+          <text x="545" y="205" text-anchor="middle" class="node-label" font-size="14">PERCEPTION</text>
+          <text x="545" y="224" text-anchor="middle" class="node-sub">input &rarr; remember or search</text>
+          <text x="545" y="243" text-anchor="middle" class="node-sub">page 3, Case 1</text>
+          <text x="410" y="187" class="badge" fill="var(--built)">BUILT</text>
+        </g>
+
+        <!-- TRUST ENGINE -->
+        <g class="node-built">
+          <rect x="760" y="170" width="300" height="110" rx="6"></rect>
+          <text x="910" y="205" text-anchor="middle" class="node-label" font-size="14">TRUST ENGINE</text>
+          <text x="910" y="224" text-anchor="middle" class="node-sub">belief + concentration + gate</text>
+          <text x="910" y="243" text-anchor="middle" class="node-sub">page 1, the math</text>
+          <text x="770" y="187" class="badge" fill="var(--built)">BUILT</text>
+        </g>
+
+        <!-- MEDIATION LAYER -->
+        <g class="node-pending">
+          <rect x="400" y="340" width="290" height="110" rx="6"></rect>
+          <text x="545" y="375" text-anchor="middle" class="node-label" font-size="14">MEDIATION LAYER</text>
+          <text x="545" y="394" text-anchor="middle" class="node-sub">acts as the user, on the world</text>
+          <text x="545" y="413" text-anchor="middle" class="node-sub">page 4 &amp; page 7</text>
+          <text x="410" y="357" class="badge" fill="var(--pending)">NOT BUILT</text>
+        </g>
+
+        <!-- VERIFICATION -->
+        <g class="node-pending">
+          <rect x="400" y="510" width="290" height="110" rx="6"></rect>
+          <text x="545" y="545" text-anchor="middle" class="node-label" font-size="14">VERIFICATION</text>
+          <text x="545" y="564" text-anchor="middle" class="node-sub">did the action match the user?</text>
+          <text x="545" y="583" text-anchor="middle" class="node-sub">page 3, Case 2</text>
+          <text x="410" y="527" class="badge" fill="var(--pending)">PARTIAL</text>
+        </g>
+
+        <!-- TRAINING LOOP -->
+        <g class="node-pending">
+          <rect x="760" y="510" width="300" height="110" rx="6"></rect>
+          <text x="910" y="545" text-anchor="middle" class="node-label" font-size="14">TRAINING LOOP</text>
+          <text x="910" y="564" text-anchor="middle" class="node-sub">predicted decision vs. actual</text>
+          <text x="910" y="583" text-anchor="middle" class="node-sub">page 2, Companion Algorithm</text>
+          <text x="770" y="527" class="badge" fill="var(--pending)">NOT BUILT</text>
+        </g>
+
+        <!-- IDEALIZED FUTURE -->
+        <g class="node-future">
+          <rect x="760" y="680" width="300" height="110" rx="6"></rect>
+          <text x="910" y="715" text-anchor="middle" class="node-label" font-size="14">IDEALIZED END-TO-END</text>
+          <text x="910" y="734" text-anchor="middle" class="node-sub">one jointly-trained decision function</text>
+          <text x="910" y="753" text-anchor="middle" class="node-sub">page 8, stacked nets</text>
+          <text x="770" y="697" class="badge" fill="var(--future)">FUTURE</text>
+        </g>
+
+        <!-- edges -->
+        <!-- digital world -> perception -->
+        <path class="edge" d="M545,92 L545,168" marker-end="url(#arrow)"></path>
+        <text x="558" y="135" class="edge-label" font-size="11">raw interaction</text>
+
+        <!-- perception -> trust engine -->
+        <path class="edge" d="M690,222 L758,222" marker-end="url(#arrow)"></path>
+        <text x="695" y="215" class="edge-label" font-size="10.5">consolidate</text>
+
+        <!-- llm -> perception (dashed) -->
+        <path class="edge-dashed" d="M330,215 L398,215" marker-end="url(#arrow)"></path>
+        <text x="335" y="208" class="edge-label" font-size="10">generates reply</text>
+
+        <!-- llm -> mediation (dashed) -->
+        <path class="edge-dashed" d="M230,281 C230,320 300,330 398,375" marker-end="url(#arrow)"></path>
+        <text x="245" y="335" class="edge-label" font-size="10">generates action</text>
+
+        <!-- trust engine -> mediation (act) -->
+        <path class="edge" d="M870,281 C830,310 720,335 692,368" marker-end="url(#arrow)"></path>
+        <text x="775" y="322" class="edge-label" font-size="10.5">act &mdash; confidence high</text>
+
+        <!-- trust engine -> digital world (ask) -->
+        <path class="edge" d="M980,169 C1000,140 1000,110 970,93" marker-end="url(#arrow)"></path>
+        <text x="1000" y="140" class="edge-label" font-size="10.5">ask &mdash; confidence low</text>
+
+        <!-- mediation -> digital world (executes on), routed around the right -->
+        <path class="edge" d="M690,375 L1120,375 L1120,56 L1062,56" marker-end="url(#arrow)"></path>
+        <text x="1128" y="215" class="edge-label" font-size="10.5" transform="rotate(90 1128 215)">executes on</text>
+
+        <!-- mediation -> verification -->
+        <path class="edge" d="M545,450 L545,508" marker-end="url(#arrow)"></path>
+        <text x="558" y="483" class="edge-label" font-size="10.5">outcome</text>
+
+        <!-- verification -> training loop -->
+        <path class="edge" d="M690,565 L758,565" marker-end="url(#arrow)"></path>
+        <text x="695" y="558" class="edge-label" font-size="10">predicted vs actual</text>
+
+        <!-- verification -> trust engine (updates belief) -->
+        <path class="edge" d="M660,508 C700,420 760,340 806,282" marker-end="url(#arrow)"></path>
+        <text x="655" y="400" class="edge-label" font-size="10.5">updates belief</text>
+
+        <!-- training loop -> trust engine (calibration data) -->
+        <path class="edge" d="M940,508 L940,282" marker-end="url(#arrow)"></path>
+        <text x="948" y="400" class="edge-label" font-size="10.5">calibration data</text>
+
+        <!-- training loop -> idealized future (dashed) -->
+        <path class="edge-dashed" d="M910,620 L910,678" marker-end="url(#arrow)"></path>
+        <text x="918" y="653" class="edge-label" font-size="10">reward signal</text>
+
+      </svg>
+    </div>
+    <figcaption>the mediator loop &mdash; solid teal is built, amber is not built yet, dashed grey is future work blocked on the amber pieces</figcaption>
+  </figure>
+
+  <div class="legend">
+    <div class="legend-item"><span class="swatch world"></span> substrate &mdash; the world being mediated</div>
+    <div class="legend-item"><span class="swatch built"></span> built &mdash; shipped in 305-cloud/comp</div>
+    <div class="legend-item"><span class="swatch pending"></span> not built / partial &mdash; on the page, not in the repo</div>
+    <div class="legend-item"><span class="swatch future"></span> future &mdash; depends on the amber pieces existing first</div>
+  </div>
+
+  <h2>Reading each node</h2>
+  <div class="key-list">
+
+    <div class="key-item">
+      <div>
+        <div class="key-name">Digital World</div>
+        <div class="key-page">page 6, &ldquo;x = digital world&rdquo;</div>
+      </div>
+      <div class="key-desc">
+        Not a component &mdash; the substrate everything else operates on. Defined precisely as
+        &ldquo;everything that exists in 1s and 0s,&rdquo; not scoped by how consequential it is.
+        Both where a request originates and where a mediated action lands.
+      </div>
+    </div>
+
+    <div class="key-item">
+      <div>
+        <div class="key-name">Perception</div>
+        <div class="key-page">page 3, Case 1</div>
+      </div>
+      <div class="key-desc">
+        Input arrives, gets accepted, and is remembered or searched against what's already known.
+        Built as <code>agents/retriever.py</code> + <code>memory/store.py</code>, feeding raw
+        episodic events toward the Trust Engine.
+      </div>
+    </div>
+
+    <div class="key-item">
+      <div>
+        <div class="key-name">Trust Engine</div>
+        <div class="key-page">page 1, the math</div>
+      </div>
+      <div class="key-desc">
+        Not just clarification logic &mdash; this is how the system knows whether it has trained
+        enough on this user to predict their decision. <code>belief.py</code>'s
+        <code>concentration</code> is literally "how much evidence," and <code>gate.py</code>'s
+        adaptive gate is the ask-vs-act line.
+      </div>
+    </div>
+
+    <div class="key-item">
+      <div>
+        <div class="key-name">LLM Transformer</div>
+        <div class="key-page">page 6, &ldquo;z = LLM transformer&rdquo;</div>
+      </div>
+      <div class="key-desc">
+        A satellite utility, not a pipeline stage: called by Perception to draft a reply, and by
+        the Mediation Layer when it needs to generate something novel rather than replay a learned
+        pattern. Built as <code>llm/gemini.py</code> and <code>llm/adk_backend.py</code>.
+      </div>
+    </div>
+
+    <div class="key-item">
+      <div>
+        <div class="key-name">Mediation Layer</div>
+        <div class="key-page">page 4 &amp; page 7, &ldquo;decisions on behalf of the User&rdquo;</div>
+      </div>
+      <div class="key-desc">
+        Only reachable through the Trust Engine's "act" branch &mdash; it never fires from raw
+        confidence alone. This is the biggest gap: Companion today only replies, it doesn't act on
+        anything in the digital world yet.
+      </div>
+    </div>
+
+    <div class="key-item">
+      <div>
+        <div class="key-name">Verification</div>
+        <div class="key-page">page 3, Case 2, the satisfaction curve</div>
+      </div>
+      <div class="key-desc">
+        Checks whether the mediated action actually matched what the user would have chosen.
+        <code>feedback.py</code> and <code>metrics.py</code> capture the raw signal; the
+        satisfaction score that should drive the two feedback arrows out of this node isn't wired
+        up yet.
+      </div>
+    </div>
+
+    <div class="key-item">
+      <div>
+        <div class="key-name">Training Loop</div>
+        <div class="key-page">page 2, &ldquo;compare this two processes&rdquo;</div>
+      </div>
+      <div class="key-desc">
+        Runs the user's real process and the Agentic AI's predicted process on the same input and
+        scores how closely the prediction matched &mdash; ground truth, not a subjective contest.
+        Nothing like this exists in the repo yet.
+      </div>
+    </div>
+
+    <div class="key-item">
+      <div>
+        <div class="key-name">Idealized End-to-End</div>
+        <div class="key-page">page 8, the stacked neural nets</div>
+      </div>
+      <div class="key-desc">
+        The purest version of the whole thesis &mdash; one jointly-trained function predicting the
+        user's decision directly. Can't be built before Verification produces a real reward
+        signal, since nothing can backprop through a hosted LLM call.
+      </div>
+    </div>
+
+  </div>
+
+</div>
