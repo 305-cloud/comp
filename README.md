@@ -86,6 +86,7 @@ companion/
     general.py                          the default: no fixed vertical
     study.py                             a second domain, its domain_knowledge partly sourced
                                           from a real ingested dataset (see below)
+    fitness.py                           a third domain: fitness/health coaching
     ingest_whatsapp.py                    messy-data ingestion pipeline: parse -> chunk ->
                                            anonymize -> safety-filter -> domain_knowledge
     domain_knowledge_loader.py             loads a domain's ingested knowledge from JSON
@@ -155,7 +156,8 @@ python -m pytest tests/ -v
 
 ## Status
 
-Working, tested (33 tests). Both the CLI and the web app run
+Working, tested (37 passing, plus 4 backend tests that run when the
+optional `google-adk`/`google-genai` packages are installed). Both the CLI and the web app run
 end-to-end on real Gemini reasoning (via Google's Agent Development
 Kit) once a key is set, not just the built-in stub — verified live,
 including a full ask-vs-act / memory / contradiction-handling pass
